@@ -1,0 +1,36 @@
+---
+all:
+  children:
+    white_vm:
+      hosts:
+        white:
+          ansible_host: <WHITEVM_IP>
+          ansible_user: <WHITEVM_SSH_USER>
+          ansible_become: yes
+          ansible_become_method: sudo
+          ansible_ssh_private_key_file: ~/.ssh/id_ed25519
+          server_domain: <WHITEVM_DOMAIN>
+          server_role: white
+
+    s3_vm:
+      hosts:
+        s3:
+          ansible_host: <S3VM_IP>
+          ansible_user: root
+          ansible_ssh_private_key_file: ~/.ssh/id_ed25519
+          server_domain: <S3VM_DOMAIN>
+          server_role: s3
+
+    foreign_vm:
+      hosts:
+        foreign:
+          ansible_host: <FOREIGNVM_IP>
+          ansible_user: root
+          ansible_ssh_pass: "<FOREIGNVM_SSH_PASSWORD>"
+          server_domain: <FOREIGNVM_DOMAIN>
+          server_role: foreign
+
+    xray_nodes:
+      children:
+        s3_vm:
+        foreign_vm:

@@ -1,0 +1,73 @@
+#!/bin/bash
+# WhiteVM health monitor — restarts the Yandex Cloud instance if unreachable
+
+LOCK_FILE="/tmp/whitevm-monitor.lock"
+YC_BIN="/usr/local/bin/yc"
+INSTANCE_ID="{{ whitevm_instance_id }}"
+CHECK_HOST="{{ whitevm_ip }}"
+CHECK_PORT=443
+RETRIES=3
+RETRY_DELAY=5
+COOLDOWN_FILE="/opt/whitevm-monitor/last_start"
+COOLDOWN_SECONDS=120
+
+# Prevent concurrent runs
+exec 200>"$LOCK_FILE"
+flock -n 200 || exit 0
+
+check_host_alive() {
+    timeout 5 bash -c "echo > /dev/tcp/${CHECK_HOST}/${CHECK_PORT}" 2>/dev/null
+}
+
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
+}
+
+# Retry connectivity check
+alive=false
+for i in $(seq 1 $RETRIES); do
+    if check_host_alive; then
+        alive=true
+        break
+    fi
+    sleep $RETRY_DELAY
+done
+
+if $alive; then
+    exit 0
+fi
+
+log "WARNING: WhiteVM (${CHECK_HOST}:${CHECK_PORT}) is unreachable after ${RETRIES} attempts"
+
+# Cooldown: skip if we started the VM recently
+if [ -f "$COOLDOWN_FILE" ]; then
+    last_start=$(cat "$COOLDOWN_FILE")
+    now=$(date +%s)
+    elapsed=$((now - last_start))
+    if [ $elapsed -lt $COOLDOWN_SECONDS ]; then
+        log "Cooldown active (${elapsed}s < ${COOLDOWN_SECONDS}s), skipping start"
+        exit 0
+    fi
+fi
+
+# Check instance status via yc
+status=$($YC_BIN compute instance get "$INSTANCE_ID" --format json 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','UNKNOWN'))" 2>/dev/null)
+
+log "Instance status: $status"
+
+if [ "$status" = "STOPPED" ] || [ "$status" = "CRASHED" ]; then
+    log "Starting WhiteVM instance ${INSTANCE_ID}..."
+    if $YC_BIN compute instance start "$INSTANCE_ID" 2>&1; then
+        date +%s > "$COOLDOWN_FILE"
+        log "Start command sent successfully"
+    else
+        log "ERROR: Failed to start instance"
+    fi
+elif [ "$status" = "STARTING" ] || [ "$status" = "PROVISIONING" ]; then
+    log "Instance is already starting, waiting..."
+    date +%s > "$COOLDOWN_FILE"
+elif [ "$status" = "RUNNING" ]; then
+    log "Instance is RUNNING but unreachable — may be booting or network issue"
+else
+    log "Unknown status: $status"
+fi

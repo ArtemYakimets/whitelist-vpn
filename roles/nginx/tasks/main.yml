@@ -1,0 +1,83 @@
+---
+# Configure Nginx reverse proxy (host-specific)
+
+- name: Install Nginx (if not already)
+  apt:
+    name: nginx
+    state: present
+
+- name: Create SSL params snippet
+  copy:
+    dest: /etc/nginx/snippets/ssl-params.conf
+    content: |
+      ssl_protocols TLSv1.2 TLSv1.3;
+      ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;
+      ssl_prefer_server_ciphers off;
+      ssl_session_timeout 1d;
+      ssl_session_cache shared:SSL:10m;
+      ssl_session_tickets off;
+      ssl_stapling on;
+      ssl_stapling_verify on;
+      resolver 8.8.8.8 8.8.4.4 valid=300s;
+      resolver_timeout 5s;
+      add_header Strict-Transport-Security "max-age=63072000" always;
+      add_header X-Frame-Options DENY always;
+      add_header X-Content-Type-Options nosniff always;
+      add_header X-XSS-Protection "1; mode=block" always;
+    mode: '0644'
+
+- name: Template Nginx config for WhiteVM
+  template:
+    src: whitevm.conf.j2
+    dest: /etc/nginx/sites-available/main
+    mode: '0644'
+  when: server_role == 'white'
+  notify: reload nginx
+
+- name: Template Nginx config for S3VM
+  template:
+    src: s3vm.conf.j2
+    dest: /etc/nginx/sites-available/main
+    mode: '0644'
+  when: server_role == 's3'
+  notify: reload nginx
+
+- name: Template Nginx config for ForeignVM
+  template:
+    src: foreignvm.conf.j2
+    dest: /etc/nginx/sites-available/main
+    mode: '0644'
+  when: server_role == 'foreign'
+  notify: reload nginx
+
+- name: Enable main site
+  file:
+    src: /etc/nginx/sites-available/main
+    dest: /etc/nginx/sites-enabled/main
+    state: link
+  notify: reload nginx
+
+- name: Remove default site if present
+  file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  notify: reload nginx
+
+- name: Remove certbot-only ACME config (replaced by main config)
+  file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/nginx/sites-enabled/acme
+    - /etc/nginx/sites-available/acme
+  notify: reload nginx
+
+- name: Test Nginx configuration
+  command: nginx -t
+  changed_when: false
+
+- name: Ensure Nginx is running
+  systemd:
+    name: nginx
+    state: started
+    enabled: yes

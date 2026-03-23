@@ -1,0 +1,91 @@
+---
+# Install Nginx for ACME challenge and obtain SSL certificates
+
+- name: Install Nginx
+  apt:
+    name: nginx
+    state: present
+
+- name: Create webroot directory for certbot
+  file:
+    path: /var/www/certbot
+    state: directory
+    mode: '0755'
+
+- name: Configure Nginx for ACME challenge (port 80)
+  copy:
+    dest: /etc/nginx/sites-available/acme
+    content: |
+      server {
+          listen 80;
+          server_name {{ server_domain }};
+
+          location /.well-known/acme-challenge/ {
+              root /var/www/certbot;
+          }
+
+          location / {
+              return 301 https://$host$request_uri;
+          }
+      }
+    mode: '0644'
+  notify: reload nginx
+
+- name: Remove default Nginx site
+  file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  notify: reload nginx
+
+- name: Enable ACME site
+  file:
+    src: /etc/nginx/sites-available/acme
+    dest: /etc/nginx/sites-enabled/acme
+    state: link
+  notify: reload nginx
+
+- name: Start Nginx for ACME challenge
+  systemd:
+    name: nginx
+    state: started
+    enabled: yes
+
+- name: Flush handlers to apply nginx config
+  meta: flush_handlers
+
+- name: Install certbot
+  apt:
+    name:
+      - certbot
+    state: present
+
+- name: Check if SSL certificate already exists
+  stat:
+    path: "/etc/letsencrypt/live/{{ server_domain }}/fullchain.pem"
+  register: cert_file
+
+- name: Obtain SSL certificate
+  command: >
+    certbot certonly --webroot
+    -w /var/www/certbot
+    -d {{ server_domain }}
+    --non-interactive
+    --agree-tos
+    --email {{ certbot_email }}
+  when: not cert_file.stat.exists
+  register: certbot_result
+
+- name: Display certbot result
+  debug:
+    var: certbot_result.stdout_lines
+  when: certbot_result is changed
+
+- name: Setup certbot auto-renewal cron
+  cron:
+    name: "certbot-renew"
+    minute: "0"
+    hour: "3"
+    day: "*"
+    month: "*"
+    weekday: "*"
+    job: "certbot renew --quiet --deploy-hook 'systemctl reload nginx'"

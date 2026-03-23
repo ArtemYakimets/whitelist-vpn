@@ -1,0 +1,39 @@
+# ForeignVM Nginx - Xray Reality fallback, Minio cover
+
+server {
+    listen 80;
+    server_name {{ foreignvm_domain }};
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen {{ xray_fallback_port }} ssl;
+    server_name {{ foreignvm_domain }};
+
+    ssl_certificate /etc/letsencrypt/live/{{ foreignvm_domain }}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/{{ foreignvm_domain }}/privkey.pem;
+    include /etc/nginx/snippets/ssl-params.conf;
+
+    # Minio Console (cover website)
+    location / {
+        proxy_pass http://127.0.0.1:{{ minio_console_port }};
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+
+        proxy_buffering off;
+        proxy_request_buffering off;
+    }
+}

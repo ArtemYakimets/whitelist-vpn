@@ -1,0 +1,12 @@
+services:
+  marzban:
+    image: gozargah/marzban:latest
+    container_name: marzban
+    restart: always
+    env_file: .env
+    network_mode: host
+    volumes:
+      - /var/lib/marzban:/var/lib/marzban
+      - /usr/local/bin/xray:/usr/local/bin/xray:ro
+      - /usr/local/share/xray:/usr/local/share/xray:ro
+      - /var/log/xray:/var/log/xray

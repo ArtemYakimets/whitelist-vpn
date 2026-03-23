@@ -1,0 +1,34 @@
+---
+# Deploy bare Minio instance in Docker (no volumes, no persistence)
+
+- name: Create Minio deployment directory
+  file:
+    path: /opt/minio
+    state: directory
+    mode: '0755'
+
+- name: Template Minio docker-compose
+  template:
+    src: docker-compose.yml.j2
+    dest: /opt/minio/docker-compose.yml
+    mode: '0644'
+
+- name: Pull Minio image
+  command: docker pull quay.io/minio/minio:latest
+  register: minio_pull
+  changed_when: "'Downloaded' in minio_pull.stdout"
+
+- name: Start Minio
+  command: docker compose up -d
+  args:
+    chdir: /opt/minio
+  register: minio_start
+
+- name: Wait for Minio to be ready
+  uri:
+    url: "http://127.0.0.1:{{ minio_console_port }}"
+    status_code: [200, 302, 403]
+  register: minio_health
+  until: minio_health.status in [200, 302, 403]
+  retries: 15
+  delay: 3

@@ -1,0 +1,100 @@
+{
+  "log": {
+    "loglevel": "warning"
+  },
+  "inbounds": [
+    {
+      "tag": "VLESS_REALITY",
+      "listen": "0.0.0.0",
+      "port": {{ xray_port }},
+      "protocol": "vless",
+      "settings": {
+        "clients": [],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "raw",
+        "rawSettings": {},
+        "security": "reality",
+        "realitySettings": {
+          "show": false,
+          "dest": "127.0.0.1:{{ xray_fallback_port }}",
+          "xver": 0,
+          "serverNames": [
+            "{{ s3vm_domain }}"
+          ],
+          "privateKey": "{{ s3_private_key }}",
+          "publicKey": "{{ s3_public_key }}",
+          "shortIds": [
+            "{{ s3_short_id }}"
+          ]
+        }
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": [
+          "http",
+          "tls",
+          "quic"
+        ]
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "CHAIN",
+      "protocol": "vless",
+      "settings": {
+        "vnext": [
+          {
+            "address": "{{ foreignvm_ip }}",
+            "port": {{ xray_port }},
+            "users": [
+              {
+                "id": "{{ service_uuid }}",
+                "encryption": "none"
+              }
+            ]
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "raw",
+        "rawSettings": {},
+        "security": "reality",
+        "realitySettings": {
+          "show": false,
+          "fingerprint": "chrome",
+          "serverName": "{{ foreignvm_domain }}",
+          "publicKey": "{{ foreign_public_key }}",
+          "shortId": "{{ foreign_short_id }}"
+        }
+      }
+    },
+    {
+      "tag": "DIRECT",
+      "protocol": "freedom"
+    },
+    {
+      "tag": "BLACKHOLE",
+      "protocol": "blackhole"
+    }
+  ],
+  "routing": {
+    "domainStrategy": "AsIs",
+    "rules": [
+      {
+        "type": "field",
+        "outboundTag": "BLACKHOLE",
+        "ip": [
+          "geoip:private"
+        ]
+      },
+      {
+        "type": "field",
+        "inboundTag": ["VLESS_REALITY"],
+        "outboundTag": "CHAIN"
+      }
+    ]
+  }
+}

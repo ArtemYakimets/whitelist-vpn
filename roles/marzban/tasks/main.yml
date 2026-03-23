@@ -1,0 +1,120 @@
+---
+# Deploy Marzban on S3VM with chain outbound to ForeignVM
+
+- name: Stop standalone Xray service (Marzban will manage Xray)
+  systemd:
+    name: xray
+    state: stopped
+    enabled: no
+  failed_when: false
+
+- name: Create Marzban directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0755'
+  loop:
+    - /opt/marzban
+    - /var/lib/marzban
+    - /var/lib/marzban/certs
+
+- name: Check if Marzban admin password already stored
+  stat:
+    path: /var/lib/marzban/.admin_password
+  register: marzban_pass_file
+
+- name: Generate Marzban admin password
+  shell: openssl rand -base64 24
+  register: marzban_pass_gen
+  when: not marzban_pass_file.stat.exists
+
+- name: Store Marzban admin password
+  copy:
+    content: "{{ marzban_pass_gen.stdout }}"
+    dest: /var/lib/marzban/.admin_password
+    mode: '0600'
+  when: not marzban_pass_file.stat.exists
+
+- name: Read Marzban admin password
+  slurp:
+    src: /var/lib/marzban/.admin_password
+  register: stored_marzban_pass
+
+- name: Set Marzban admin password fact
+  set_fact:
+    marzban_admin_password: "{{ stored_marzban_pass.content | b64decode | trim }}"
+    cacheable: yes
+
+# Read ForeignVM keys for chain outbound
+- name: Read ForeignVM public key
+  slurp:
+    src: /etc/xray/reality_public_key
+  register: foreign_pubkey_file
+  delegate_to: foreign
+
+- name: Read ForeignVM short ID
+  slurp:
+    src: /etc/xray/short_id
+  register: foreign_shortid_file
+  delegate_to: foreign
+
+- name: Read ForeignVM service user UUID
+  slurp:
+    src: /etc/xray/service_user_uuid
+  register: foreign_uuid_file
+  delegate_to: foreign
+
+- name: Template Marzban Xray config
+  template:
+    src: xray_config.json.j2
+    dest: /var/lib/marzban/xray_config.json
+    mode: '0644'
+  vars:
+    s3_private_key: "{{ reality_private_key }}"
+    s3_public_key: "{{ reality_public_key }}"
+    s3_short_id: "{{ reality_short_id }}"
+    foreign_public_key: "{{ foreign_pubkey_file.content | b64decode | trim }}"
+    foreign_short_id: "{{ foreign_shortid_file.content | b64decode | trim }}"
+    service_uuid: "{{ foreign_uuid_file.content | b64decode | trim }}"
+
+- name: Template Marzban environment file
+  template:
+    src: env.j2
+    dest: /opt/marzban/.env
+    mode: '0600'
+  vars:
+    admin_password: "{{ marzban_admin_password }}"
+
+- name: Template Marzban docker-compose
+  template:
+    src: docker-compose.yml.j2
+    dest: /opt/marzban/docker-compose.yml
+    mode: '0644'
+
+- name: Pull Marzban image
+  command: docker pull gozargah/marzban:latest
+  changed_when: false
+
+- name: Start Marzban
+  command: docker compose up -d
+  args:
+    chdir: /opt/marzban
+  register: marzban_start
+
+- name: Wait for Marzban to be ready
+  uri:
+    url: "http://127.0.0.1:{{ marzban_port }}/api/"
+    status_code: [200, 404, 422]
+  register: marzban_health
+  until: marzban_health.status is defined
+  retries: 30
+  delay: 5
+  failed_when: false
+
+- name: Display Marzban credentials
+  debug:
+    msg: |
+      === Marzban Panel Credentials ===
+      URL:      https://{{ s3vm_domain }}{{ marzban_dashboard_path }}
+      Username: admin
+      Password: {{ marzban_admin_password }}

@@ -1,0 +1,21 @@
+---
+# HAProxy SNI-based TCP routing on WhiteVM
+
+- name: Install HAProxy
+  apt:
+    name: haproxy
+    state: present
+
+- name: Template HAProxy configuration
+  template:
+    src: haproxy.cfg.j2
+    dest: /etc/haproxy/haproxy.cfg
+    mode: '0644'
+    validate: "haproxy -c -f %s"
+  notify: restart haproxy
+
+- name: Enable and start HAProxy
+  systemd:
+    name: haproxy
+    state: started
+    enabled: yes

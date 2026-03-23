@@ -1,0 +1,46 @@
+---
+# Configure Xray based on server role
+
+# === S3VM: Marzban manages Xray, ensure standalone is stopped ===
+- name: Ensure standalone Xray is stopped on S3VM (Marzban manages it)
+  systemd:
+    name: xray
+    state: stopped
+    enabled: no
+  when: server_role == 's3'
+  failed_when: false
+
+# === ForeignVM: standalone Xray with service user ===
+- name: Cleanup Marzban on ForeignVM (migration from old architecture)
+  shell: |
+    cd /opt/marzban && docker compose down 2>/dev/null || true
+    docker rm -f marzban 2>/dev/null || true
+  when: server_role == 'foreign'
+  changed_when: false
+  failed_when: false
+
+- name: Read service user UUID (ForeignVM)
+  slurp:
+    src: /etc/xray/service_user_uuid
+  register: svc_uuid_file
+  when: server_role == 'foreign'
+
+- name: Template Xray config for ForeignVM
+  template:
+    src: config_foreignvm.json.j2
+    dest: /usr/local/etc/xray/config.json
+    mode: '0644'
+  when: server_role == 'foreign'
+  vars:
+    foreign_private_key: "{{ reality_private_key }}"
+    foreign_short_id: "{{ reality_short_id }}"
+    service_uuid: "{{ svc_uuid_file.content | b64decode | trim }}"
+  notify: restart xray
+
+- name: Enable and start Xray service (ForeignVM)
+  systemd:
+    name: xray
+    state: started
+    enabled: yes
+    daemon_reload: yes
+  when: server_role == 'foreign'

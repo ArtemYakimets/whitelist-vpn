@@ -1,0 +1,28 @@
+# WhiteVM Nginx - serves behind HAProxy on port 8443
+
+server {
+    listen 80;
+    server_name {{ whitevm_domain }};
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen {{ xray_fallback_port }} ssl;
+    server_name {{ whitevm_domain }};
+
+    ssl_certificate /etc/letsencrypt/live/{{ whitevm_domain }}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/{{ whitevm_domain }}/privkey.pem;
+    include /etc/nginx/snippets/ssl-params.conf;
+
+    location / {
+        default_type text/html;
+        return 200 '<!DOCTYPE html><html><head><title>{{ whitevm_domain }}</title></head><body><h1>Welcome</h1><p>Service is running.</p></body></html>';
+    }
+}

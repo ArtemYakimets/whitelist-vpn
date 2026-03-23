@@ -1,0 +1,122 @@
+---
+# White VPN Infrastructure
+#
+# Architecture:
+#   Client -> WhiteVM (HAProxy SNI) -> S3VM (Xray Reality + Marzban) -> ForeignVM (Xray Reality) -> Internet
+
+# ============================================================
+# Stage 1: System preparation on all hosts
+# ============================================================
+- name: "Stage 1: System preparation"
+  hosts: all
+  become: yes
+  roles:
+    - common
+
+# ============================================================
+# Stage 2: Docker installation on VPN nodes
+# ============================================================
+- name: "Stage 2: Docker installation"
+  hosts: xray_nodes
+  become: yes
+  roles:
+    - docker
+
+# ============================================================
+# Stage 3: SSL certificates (Nginx on port 80 + Certbot)
+# ============================================================
+- name: "Stage 3: SSL certificates"
+  hosts: all
+  become: yes
+  roles:
+    - certbot
+
+# ============================================================
+# Stage 4: Xray installation and key generation
+# ============================================================
+- name: "Stage 4: Xray installation and key generation"
+  hosts: xray_nodes
+  become: yes
+  tasks:
+    - name: Install Xray and generate keys
+      import_role:
+        name: xray
+        tasks_from: install.yml
+
+# ============================================================
+# Stage 5: Minio deployment on VPN nodes
+# ============================================================
+- name: "Stage 5: Minio deployment"
+  hosts: xray_nodes
+  become: yes
+  roles:
+    - minio
+
+# ============================================================
+# Stage 6: Marzban deployment on S3VM
+# ============================================================
+- name: "Stage 6: Marzban deployment"
+  hosts: s3_vm
+  become: yes
+  roles:
+    - marzban
+
+# ============================================================
+# Stage 7: Nginx configuration
+# ============================================================
+- name: "Stage 7: Nginx configuration"
+  hosts: all
+  become: yes
+  roles:
+    - nginx
+
+# ============================================================
+# Stage 8: Xray configuration (ForeignVM standalone, S3VM skip)
+# ============================================================
+- name: "Stage 8: Xray configuration"
+  hosts: xray_nodes
+  become: yes
+  tasks:
+    - name: Configure Xray
+      import_role:
+        name: xray
+        tasks_from: configure.yml
+
+# ============================================================
+# Stage 9: HAProxy on WhiteVM
+# ============================================================
+- name: "Stage 9: HAProxy setup"
+  hosts: white_vm
+  become: yes
+  roles:
+    - haproxy
+
+# ============================================================
+# Stage 10: Configure Marzban host settings
+# ============================================================
+- name: "Stage 10: Configure Marzban hosts"
+  hosts: s3_vm
+  become: yes
+  tasks:
+    - name: Configure Marzban hosts for WhiteVM routing
+      import_role:
+        name: marzban
+        tasks_from: configure_hosts.yml
+
+# ============================================================
+# Stage 11: WhiteVM monitoring on S3VM
+# ============================================================
+- name: "Stage 11: WhiteVM monitoring"
+  hosts: s3_vm
+  become: yes
+  roles:
+    - monitoring
+
+# ============================================================
+# Stage 12: Verify everything
+# ============================================================
+- name: "Stage 12: Verify deployment"
+  hosts: all
+  become: yes
+  roles:
+    - verify

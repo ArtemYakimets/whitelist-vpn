@@ -1,0 +1,51 @@
+---
+# Configure Marzban host settings so generated links route through WhiteVM
+
+- name: Read Marzban admin password
+  slurp:
+    src: /var/lib/marzban/.admin_password
+  register: stored_marzban_pass
+
+- name: Set Marzban admin password fact
+  set_fact:
+    marzban_admin_password: "{{ stored_marzban_pass.content | b64decode | trim }}"
+
+- name: Get Marzban admin token
+  uri:
+    url: "http://127.0.0.1:{{ marzban_port }}/api/admin/token"
+    method: POST
+    body_format: form-urlencoded
+    body:
+      grant_type: "password"
+      username: "admin"
+      password: "{{ marzban_admin_password }}"
+    status_code: [200]
+  register: marzban_token
+  retries: 5
+  delay: 5
+
+- name: Configure Marzban hosts for WhiteVM routing
+  uri:
+    url: "http://127.0.0.1:{{ marzban_port }}/api/hosts"
+    method: PUT
+    headers:
+      Authorization: "Bearer {{ marzban_token.json.access_token }}"
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      VLESS_REALITY:
+        - remark: "WhiteVPN"
+          address: "{{ whitevm_ip }}"
+          port: 443
+          sni: "{{ s3vm_domain }}"
+          fingerprint: "chrome"
+          is_disabled: false
+    status_code: [200]
+
+- name: Display Marzban host configuration
+  debug:
+    msg: |
+      === Marzban Hosts Configured ===
+      Generated links will use: {{ whitevm_ip }}:443
+      SNI:   {{ s3vm_domain }}
+      Chain: Client → WhiteVM → S3VM → ForeignVM → Internet

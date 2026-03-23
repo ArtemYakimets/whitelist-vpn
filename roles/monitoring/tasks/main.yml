@@ -1,0 +1,85 @@
+---
+# WhiteVM health monitor — checks if WhiteVM is alive and starts it via yc CLI if down
+
+- name: Create monitoring directory
+  file:
+    path: /opt/whitevm-monitor
+    state: directory
+    mode: '0750'
+
+- name: Check if yc CLI is installed
+  stat:
+    path: /usr/local/bin/yc
+  register: yc_binary
+
+- name: Download yc CLI installer
+  get_url:
+    url: https://storage.yandexcloud.net/yandexcloud-yc/install.sh
+    dest: /tmp/yc_install.sh
+    mode: '0755'
+  when: not yc_binary.stat.exists
+
+- name: Install yc CLI
+  shell: /tmp/yc_install.sh -i /opt/yandex-cloud -n
+  args:
+    creates: /opt/yandex-cloud/bin/yc
+  when: not yc_binary.stat.exists
+
+- name: Symlink yc to /usr/local/bin
+  file:
+    src: /opt/yandex-cloud/bin/yc
+    dest: /usr/local/bin/yc
+    state: link
+  when: not yc_binary.stat.exists
+
+- name: Deploy yc service account key
+  copy:
+    src: "{{ playbook_dir }}/secrets/yc-sa-key.json"
+    dest: /opt/whitevm-monitor/sa-key.json
+    mode: '0600'
+  register: yc_key_deployed
+
+- name: Configure yc CLI profile
+  shell: |
+    /usr/local/bin/yc config profile create monitor 2>/dev/null || true
+    /usr/local/bin/yc config profile activate monitor
+    /usr/local/bin/yc config set service-account-key /opt/whitevm-monitor/sa-key.json
+    /usr/local/bin/yc config set folder-id {{ yc_folder_id }}
+  when: yc_key_deployed is changed
+
+- name: Verify yc CLI can authenticate
+  command: /usr/local/bin/yc compute instance get {{ whitevm_instance_id }} --format json
+  register: yc_test
+  changed_when: false
+  failed_when: false
+
+- name: Show yc verification result
+  debug:
+    msg: "YC CLI auth: {{ 'OK — instance ' + (yc_test.stdout | from_json).status | default('UNKNOWN') if yc_test.rc == 0 else 'FAILED — ' + yc_test.stderr }}"
+
+- name: Template monitoring script
+  template:
+    src: monitor.sh.j2
+    dest: /opt/whitevm-monitor/monitor.sh
+    mode: '0750'
+
+- name: Set up cron job for WhiteVM health check (every minute)
+  cron:
+    name: "whitevm-health-check"
+    minute: "*"
+    job: "/opt/whitevm-monitor/monitor.sh >> /opt/whitevm-monitor/monitor.log 2>&1"
+    user: root
+
+- name: Add logrotate for monitor log
+  copy:
+    dest: /etc/logrotate.d/whitevm-monitor
+    content: |
+      /opt/whitevm-monitor/monitor.log {
+          daily
+          rotate 7
+          compress
+          missingok
+          notifempty
+          size 10M
+      }
+    mode: '0644'

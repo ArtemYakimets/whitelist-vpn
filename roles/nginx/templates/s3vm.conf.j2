@@ -1,0 +1,79 @@
+# S3VM Nginx - Xray Reality fallback, Marzban panel + Minio cover
+
+server {
+    listen 80;
+    server_name {{ s3vm_domain }};
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen {{ xray_fallback_port }} ssl;
+    server_name {{ s3vm_domain }};
+
+    ssl_certificate /etc/letsencrypt/live/{{ s3vm_domain }}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/{{ s3vm_domain }}/privkey.pem;
+    include /etc/nginx/snippets/ssl-params.conf;
+
+    # Marzban panel
+    location {{ marzban_dashboard_path }} {
+        proxy_pass http://127.0.0.1:{{ marzban_port }}{{ marzban_dashboard_path }};
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+
+    # Marzban static assets (JS, CSS, favicons)
+    location /statics/ {
+        proxy_pass http://127.0.0.1:{{ marzban_port }}/statics/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Marzban API
+    location /api/ {
+        proxy_pass http://127.0.0.1:{{ marzban_port }}/api/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Marzban subscription
+    location /sub/ {
+        proxy_pass http://127.0.0.1:{{ marzban_port }}/sub/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Minio Console (cover website, default)
+    location / {
+        proxy_pass http://127.0.0.1:{{ minio_console_port }};
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+
+        proxy_buffering off;
+        proxy_request_buffering off;
+    }
+}

@@ -1,0 +1,40 @@
+# Ansible
+*.retry
+.ansible_facts_cache/
+*.pyc
+__pycache__/
+
+# Sensitive config (real credentials, IPs, passwords)
+inventory/hosts.yml
+group_vars/all.yml
+
+# Secrets (never commit)
+secrets/
+*.vault
+vault_pass.txt
+secrets.yml
+*.pem
+*.key
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Terraform (if used)
+.terraform/
+*.tfstate
+*.tfstate.backup
+
+# Logs
+*.log
+
+# Temporary
+tmp/
+temp/

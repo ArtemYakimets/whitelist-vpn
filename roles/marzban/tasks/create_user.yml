@@ -1,0 +1,72 @@
+---
+# Create service user in Marzban for S3VM -> ForeignVM chain
+
+- name: Read Marzban admin password
+  slurp:
+    src: /var/lib/marzban/.admin_password
+  register: stored_marzban_pass
+
+- name: Read service user UUID
+  slurp:
+    src: /etc/xray/service_user_uuid
+  register: stored_svc_uuid
+
+- name: Set local facts
+  set_fact:
+    marzban_admin_password: "{{ stored_marzban_pass.content | b64decode | trim }}"
+    service_user_uuid: "{{ stored_svc_uuid.content | b64decode | trim }}"
+
+- name: Get Marzban admin token
+  uri:
+    url: "http://127.0.0.1:{{ marzban_port }}/api/admin/token"
+    method: POST
+    body_format: form-urlencoded
+    body:
+      grant_type: "password"
+      username: "admin"
+      password: "{{ marzban_admin_password }}"
+    status_code: [200]
+  register: marzban_token
+  retries: 5
+  delay: 5
+
+- name: Check if service user already exists
+  uri:
+    url: "http://127.0.0.1:{{ marzban_port }}/api/user/service_chain"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ marzban_token.json.access_token }}"
+    status_code: [200, 404]
+  register: service_user_check
+
+- name: Create service user in Marzban
+  uri:
+    url: "http://127.0.0.1:{{ marzban_port }}/api/user"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ marzban_token.json.access_token }}"
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      username: "service_chain"
+      proxies:
+        vless:
+          id: "{{ service_user_uuid }}"
+          flow: "xtls-rprx-vision"
+      inbounds:
+        vless:
+          - "VLESS_REALITY"
+      status: "active"
+      data_limit: 0
+      expire: 0
+    status_code: [200, 409]
+  register: service_user_created
+  when: service_user_check.status == 404
+
+- name: Display service user info
+  debug:
+    msg: |
+      === Service User Created ===
+      Username: service_chain
+      UUID:     {{ service_user_uuid }}
+      Status:   {{ 'Created' if service_user_check.status == 404 else 'Already exists' }}

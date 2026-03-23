@@ -1,0 +1,170 @@
+---
+# Verification tasks for all hosts
+
+- name: Verify UFW is active
+  command: ufw status
+  register: ufw_status
+  changed_when: false
+
+- name: Show UFW status
+  debug:
+    var: ufw_status.stdout_lines
+
+# --- WhiteVM checks ---
+- name: Verify HAProxy is running (WhiteVM)
+  systemd:
+    name: haproxy
+    state: started
+  check_mode: yes
+  register: haproxy_status
+  when: server_role == 'white'
+  failed_when: false
+
+- name: Verify HAProxy port 443 is listening (WhiteVM)
+  wait_for:
+    port: "{{ xray_port }}"
+    timeout: 5
+  when: server_role == 'white'
+
+- name: Test HAProxy SNI routing (WhiteVM)
+  shell: |
+    echo | openssl s_client -connect 127.0.0.1:{{ xray_port }} -servername {{ s3vm_domain }} 2>/dev/null | head -5
+  register: haproxy_sni_test
+  when: server_role == 'white'
+  changed_when: false
+  failed_when: false
+
+# --- S3VM checks ---
+- name: Verify Marzban container is running (S3VM)
+  command: docker ps --filter name=marzban --format '{{ '{{' }}.Status{{ '}}' }}'
+  register: marzban_container_status
+  when: server_role == 's3'
+  changed_when: false
+
+- name: Show Marzban container status (S3VM)
+  debug:
+    var: marzban_container_status.stdout
+  when: server_role == 's3'
+
+- name: Verify port 443 is listening (S3VM)
+  wait_for:
+    port: "{{ xray_port }}"
+    timeout: 10
+  when: server_role == 's3'
+
+# --- ForeignVM checks ---
+- name: Verify Xray is running (ForeignVM)
+  systemd:
+    name: xray
+    state: started
+  check_mode: yes
+  register: xray_status_foreign
+  when: server_role == 'foreign'
+
+- name: Verify Xray port 443 is listening (ForeignVM)
+  wait_for:
+    port: "{{ xray_port }}"
+    timeout: 5
+  when: server_role == 'foreign'
+
+- name: Test Xray config validity (ForeignVM)
+  command: /usr/local/bin/xray -test -config /usr/local/etc/xray/config.json
+  when: server_role == 'foreign'
+  changed_when: false
+
+# --- Common checks ---
+- name: Verify Nginx is running
+  systemd:
+    name: nginx
+    state: started
+  check_mode: yes
+  register: nginx_status
+
+- name: Verify Nginx port 80 is listening
+  wait_for:
+    port: 80
+    timeout: 5
+
+- name: Verify Nginx fallback port is listening
+  wait_for:
+    port: "{{ xray_fallback_port }}"
+    timeout: 5
+  when: server_role in ['s3', 'foreign', 'white']
+
+- name: Verify Minio container is running (xray_nodes)
+  command: docker ps --filter name=minio --format '{{ '{{' }}.Status{{ '}}' }}'
+  register: minio_container_status
+  when: server_role in ['s3', 'foreign']
+  changed_when: false
+
+- name: Show Minio container status
+  debug:
+    var: minio_container_status.stdout
+  when: server_role in ['s3', 'foreign']
+
+- name: Test Minio console via localhost (xray_nodes)
+  uri:
+    url: "http://127.0.0.1:{{ minio_console_port }}"
+    status_code: [200, 302, 403]
+  when: server_role in ['s3', 'foreign']
+  register: minio_test
+
+- name: Verify SSL certificate exists
+  stat:
+    path: "/etc/letsencrypt/live/{{ server_domain }}/fullchain.pem"
+  register: ssl_cert_check
+
+- name: Show SSL certificate status
+  debug:
+    msg: "SSL certificate for {{ server_domain }}: {{ 'EXISTS' if ssl_cert_check.stat.exists else 'MISSING' }}"
+
+- name: Test SSL certificate validity
+  shell: |
+    echo | openssl s_client -connect 127.0.0.1:{{ xray_fallback_port }} -servername {{ server_domain }} 2>/dev/null | openssl x509 -noout -dates 2>/dev/null
+  register: ssl_validity
+  when: ssl_cert_check.stat.exists and server_role in ['s3', 'foreign', 'white']
+  changed_when: false
+  failed_when: false
+
+- name: Show SSL validity
+  debug:
+    var: ssl_validity.stdout_lines
+  when: ssl_validity is defined and ssl_validity.stdout_lines is defined
+
+# --- S3VM monitoring check ---
+- name: Verify monitoring script exists (S3VM)
+  stat:
+    path: /opt/whitevm-monitor/monitor.sh
+  register: monitor_script
+  when: server_role == 's3'
+
+- name: Verify monitoring cron job (S3VM)
+  shell: crontab -l | grep whitevm
+  register: monitor_cron
+  when: server_role == 's3'
+  changed_when: false
+  failed_when: false
+
+# --- Summary ---
+- name: Display verification summary
+  debug:
+    msg: |
+      ====================================
+      VERIFICATION RESULTS for {{ server_domain }}
+      ====================================
+      Role:     {{ server_role }}
+      Nginx:    {{ 'OK' if nginx_status is not failed else 'FAIL' }}
+      SSL Cert: {{ 'OK' if ssl_cert_check.stat.exists else 'MISSING' }}
+      {% if server_role == 'white' %}
+      HAProxy:  {{ 'OK' if haproxy_status is not failed else 'FAIL' }}
+      {% endif %}
+      {% if server_role == 's3' %}
+      Marzban:  {{ marzban_container_status.stdout | default('N/A') }}
+      Minio:    {{ minio_container_status.stdout | default('N/A') }}
+      Monitor:  {{ 'OK' if monitor_script.stat.exists | default(false) else 'MISSING' }}
+      {% endif %}
+      {% if server_role == 'foreign' %}
+      Xray:     {{ 'OK' if xray_status_foreign is not failed else 'FAIL' }}
+      Minio:    {{ minio_container_status.stdout | default('N/A') }}
+      {% endif %}
+      ====================================

@@ -1,0 +1,137 @@
+---
+# Install Xray binary and generate Reality key pair
+
+- name: Check if Xray is installed
+  stat:
+    path: /usr/local/bin/xray
+  register: xray_binary
+
+- name: Download and install Xray
+  shell: |
+    bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install
+  when: not xray_binary.stat.exists
+  register: xray_install_result
+
+- name: Stop Xray if just installed (will be configured and started later)
+  systemd:
+    name: xray
+    state: stopped
+    enabled: no
+    daemon_reload: yes
+  when: xray_install_result is changed
+  failed_when: false
+
+- name: Create Xray config directory
+  file:
+    path: /usr/local/etc/xray
+    state: directory
+    mode: '0755'
+
+- name: Create Xray keys directory
+  file:
+    path: /etc/xray
+    state: directory
+    mode: '0700'
+
+- name: Check if Reality keys exist
+  stat:
+    path: /etc/xray/reality_private_key
+  register: reality_keys_exist
+
+- name: Generate Reality x25519 key pair
+  command: /usr/local/bin/xray x25519
+  register: xray_keygen
+  when: not reality_keys_exist.stat.exists
+
+- name: Parse and store Reality private key
+  copy:
+    content: "{{ xray_keygen.stdout | regex_search('PrivateKey:\\s*(.+)', '\\1') | first }}"
+    dest: /etc/xray/reality_private_key
+    mode: '0600'
+  when: not reality_keys_exist.stat.exists
+
+- name: Parse and store Reality public key
+  copy:
+    content: "{{ xray_keygen.stdout | regex_search('PublicKey:\\s*(.+)', '\\1') | first }}"
+    dest: /etc/xray/reality_public_key
+    mode: '0644'
+  when: not reality_keys_exist.stat.exists
+
+- name: Generate short ID
+  shell: openssl rand -hex 8
+  register: short_id_gen
+  args:
+    creates: /etc/xray/short_id
+
+- name: Store short ID
+  copy:
+    content: "{{ short_id_gen.stdout }}"
+    dest: /etc/xray/short_id
+    mode: '0644'
+  when: short_id_gen is changed
+
+- name: Generate service user UUID (ForeignVM only)
+  shell: cat /proc/sys/kernel/random/uuid
+  register: uuid_gen
+  args:
+    creates: /etc/xray/service_user_uuid
+  when: server_role == 'foreign'
+
+- name: Store service user UUID
+  copy:
+    content: "{{ uuid_gen.stdout }}"
+    dest: /etc/xray/service_user_uuid
+    mode: '0644'
+  when: server_role == 'foreign' and uuid_gen is changed
+
+- name: Read Reality private key
+  slurp:
+    src: /etc/xray/reality_private_key
+  register: stored_private_key
+
+- name: Read Reality public key
+  slurp:
+    src: /etc/xray/reality_public_key
+  register: stored_public_key
+
+- name: Read short ID
+  slurp:
+    src: /etc/xray/short_id
+  register: stored_short_id
+
+- name: Read service user UUID (ForeignVM only)
+  slurp:
+    src: /etc/xray/service_user_uuid
+  register: stored_service_uuid
+  when: server_role == 'foreign'
+
+- name: Set Reality key facts
+  set_fact:
+    reality_private_key: "{{ stored_private_key.content | b64decode | trim }}"
+    reality_public_key: "{{ stored_public_key.content | b64decode | trim }}"
+    reality_short_id: "{{ stored_short_id.content | b64decode | trim }}"
+    cacheable: yes
+
+- name: Set service user UUID fact (ForeignVM only)
+  set_fact:
+    service_user_uuid: "{{ stored_service_uuid.content | b64decode | trim }}"
+    cacheable: yes
+  when: server_role == 'foreign'
+
+- name: Display public key for client configuration
+  debug:
+    msg: |
+      === Xray Reality Keys for {{ server_domain }} ===
+      Public Key: {{ reality_public_key }}
+      Short ID:   {{ reality_short_id }}
+      {% if service_user_uuid is defined %}
+      Service User UUID: {{ service_user_uuid }}
+      {% endif %}
+
+- name: Create Xray log directory
+  file:
+    path: /var/log/xray
+    state: directory
+    owner: nobody
+    group: nogroup
+    mode: '0755'

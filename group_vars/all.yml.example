@@ -1,0 +1,36 @@
+---
+# --- Network topology ---
+whitevm_ip: "<WHITEVM_IP>"
+s3vm_ip: "<S3VM_IP>"
+foreignvm_ip: "<FOREIGNVM_IP>"
+
+whitevm_domain: "<WHITEVM_DOMAIN>"
+s3vm_domain: "<S3VM_DOMAIN>"
+foreignvm_domain: "<FOREIGNVM_DOMAIN>"
+
+# --- SSL / Certbot ---
+certbot_email: "<YOUR_EMAIL>"
+
+# --- Xray ---
+xray_port: 443
+xray_fallback_port: 8443
+
+# --- Minio ---
+minio_api_port: 9000
+minio_console_port: 9001
+minio_root_user: "minioadmin"
+minio_root_password: "minioadmin"
+
+# --- Marzban ---
+marzban_port: 8000
+marzban_dashboard_path: "/panel/"
+
+# --- WhiteVM monitoring (Yandex Cloud) ---
+whitevm_instance_id: "<YC_INSTANCE_ID>"
+yc_folder_id: "<YC_FOLDER_ID>"
+
+# --- Firewall allowed ports ---
+firewall_allowed_ports:
+  - "22/tcp"
+  - "80/tcp"
+  - "443/tcp"
