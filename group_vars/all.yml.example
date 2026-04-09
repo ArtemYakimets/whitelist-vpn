@@ -29,6 +29,12 @@ marzban_dashboard_path: "/panel/"
 whitevm_instance_id: "<YC_INSTANCE_ID>"
 yc_folder_id: "<YC_FOLDER_ID>"
 
+# --- Grey VPN (direct VPN on ForeignVM, optional) ---
+grey_vpn_enabled: false
+grey_xray_port: 2053
+grey_marzban_port: 8001
+grey_dashboard_path: "/panel/"
+
 # --- Firewall allowed ports ---
 firewall_allowed_ports:
   - "22/tcp"

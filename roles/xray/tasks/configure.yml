@@ -11,7 +11,7 @@
   failed_when: false
 
 # === ForeignVM: standalone Xray with service user ===
-- name: Cleanup Marzban on ForeignVM (migration from old architecture)
+- name: Cleanup old Marzban on ForeignVM (migration from old architecture)
   shell: |
     cd /opt/marzban && docker compose down 2>/dev/null || true
     docker rm -f marzban 2>/dev/null || true

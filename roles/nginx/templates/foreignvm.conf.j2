@@ -21,6 +21,48 @@ server {
     ssl_certificate_key /etc/letsencrypt/live/{{ foreignvm_domain }}/privkey.pem;
     include /etc/nginx/snippets/ssl-params.conf;
 
+{% if grey_vpn_enabled | default(false) %}
+    # Grey Marzban panel
+    location {{ grey_dashboard_path | default('/panel/') }} {
+        proxy_pass http://127.0.0.1:{{ grey_marzban_port | default(8001) }}{{ grey_dashboard_path | default('/panel/') }};
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+
+    # Grey Marzban static assets
+    location /statics/ {
+        proxy_pass http://127.0.0.1:{{ grey_marzban_port | default(8001) }}/statics/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Grey Marzban API
+    location /api/ {
+        proxy_pass http://127.0.0.1:{{ grey_marzban_port | default(8001) }}/api/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Grey Marzban subscription
+    location /sub/ {
+        proxy_pass http://127.0.0.1:{{ grey_marzban_port | default(8001) }}/sub/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+{% endif %}
+
     # Minio Console (cover website)
     location / {
         proxy_pass http://127.0.0.1:{{ minio_console_port }};

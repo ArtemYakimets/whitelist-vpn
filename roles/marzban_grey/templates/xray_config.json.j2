@@ -1,0 +1,69 @@
+{
+  "log": {
+    "loglevel": "warning",
+    "access": "/var/log/xray/access-grey.log",
+    "error": "/var/log/xray/error-grey.log"
+  },
+  "inbounds": [
+    {
+      "tag": "VLESS_REALITY_XHTTP",
+      "listen": "0.0.0.0",
+      "port": {{ grey_xray_port }},
+      "protocol": "vless",
+      "settings": {
+        "clients": [],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "xhttp",
+        "xhttpSettings": {
+          "path": "/",
+          "mode": "auto"
+        },
+        "security": "reality",
+        "realitySettings": {
+          "show": false,
+          "dest": "127.0.0.1:{{ xray_fallback_port }}",
+          "xver": 0,
+          "serverNames": [
+            "{{ foreignvm_domain }}"
+          ],
+          "privateKey": "{{ grey_private_key }}",
+          "shortIds": [
+            "{{ grey_short_id }}"
+          ]
+        }
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": [
+          "http",
+          "tls",
+          "quic"
+        ]
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "DIRECT",
+      "protocol": "freedom"
+    },
+    {
+      "tag": "BLOCK",
+      "protocol": "blackhole"
+    }
+  ],
+  "routing": {
+    "domainStrategy": "AsIs",
+    "rules": [
+      {
+        "type": "field",
+        "outboundTag": "BLOCK",
+        "ip": [
+          "geoip:private"
+        ]
+      }
+    ]
+  }
+}

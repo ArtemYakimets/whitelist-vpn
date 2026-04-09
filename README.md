@@ -24,7 +24,7 @@ Internet
 |------|------|
 | WhiteVM | HAProxy SNI router (whitelisted IP, e.g. Yandex Cloud) |
 | S3VM | Xray Reality + Marzban panel + Minio cover |
-| ForeignVM | Xray Reality exit node + Minio cover |
+| ForeignVM | Xray Reality exit node + Minio cover + (optional) Grey VPN |
 
 ## Camouflage Strategy
 
@@ -32,6 +32,35 @@ Internet
 - **Double Reality hop** — both S3VM and ForeignVM use VLESS Reality with "steal oneself", DPI sees only normal TLS traffic
 - **HAProxy SNI routing** — WhiteVM appears as a normal web server while transparently routing VPN traffic
 - **Minio cover** — both VPN nodes serve a real Minio S3 console as the cover website
+
+## Grey VPN — Direct Access (Optional)
+
+In addition to the double-hop WhiteVPN, you can optionally deploy **GreyVPN** — a direct VPN on ForeignVM that bypasses the chain and connects clients straight to the exit server.
+
+```
+Client
+  │
+  ▼  VLESS Reality XHTTP (<FOREIGNVM_DOMAIN>:2053)
+ForeignVM ← Marzban (user management) + Xray Reality XHTTP
+  │
+  ▼
+Internet
+```
+
+**Key points:**
+
+- Runs alongside the existing chain VPN without conflicts (separate Xray process on port 2053)
+- Uses VLESS Reality XHTTP transport for maximum stealth
+- "Steal oneself" camouflage — Reality falls back to the same Nginx/Minio cover site
+- Marzban panel at `https://<FOREIGNVM_DOMAIN>/panel/`
+- Enabled by setting `grey_vpn_enabled: true` in `group_vars/all.yml`
+
+**When to use:**
+
+| VPN | Route | Use case |
+|-----|-------|----------|
+| WhiteVPN | Client → WhiteVM → S3VM → ForeignVM → Internet | Bypass IP whitelists (Russian services) |
+| GreyVPN | Client → ForeignVM → Internet | Direct access, lower latency |
 
 ---
 
@@ -64,7 +93,7 @@ apt install sshpass
 brew install hudochenkov/sshpass/sshpass
 ```
 
-6. **Ports 80 and 443** open in cloud security groups / firewalls for all hosts
+6. **Ports 80 and 443** open in cloud security groups / firewalls for all hosts (+ port **2053** on ForeignVM if Grey VPN is enabled)
 
 ### Configuration
 
@@ -79,7 +108,9 @@ cp group_vars/all.yml.example group_vars/all.yml
 
 3. Edit `group_vars/all.yml` — fill in IPs, domains, email, and Yandex Cloud IDs
 
-4. (Optional) Place your Yandex Cloud service account key in `secrets/yc-sa-key.json`
+4. (Optional) Set `grey_vpn_enabled: true` in `group_vars/all.yml` to enable Grey VPN on ForeignVM
+
+5. (Optional) Place your Yandex Cloud service account key in `secrets/yc-sa-key.json`
 
 ### Deploy
 
@@ -146,6 +177,37 @@ After connecting:
 
 ---
 
+## Grey VPN Connection Guide (if enabled)
+
+### Step 1. Access the Grey Marzban Panel
+
+```
+https://<FOREIGNVM_DOMAIN>/panel/
+```
+
+Credentials are stored on the server at `/var/lib/marzban-grey/.admin_password`. Default username: `admin`.
+
+### Step 2. Create a User
+
+1. Log in to the Grey Marzban panel
+2. Click **"Add User"**
+3. Fill in:
+   - **Username** — any name (e.g. `my-grey-vpn`)
+   - **Protocol** — select **VLESS**
+   - **Inbound** — select **VLESS_REALITY_XHTTP**
+   - **Flow** — leave **empty** (XHTTP does not use vision flow)
+4. Click **Create**
+5. Copy the generated **VLESS link**
+
+### Step 3. Connect
+
+1. Import the link into your VPN client (same clients as WhiteVPN)
+2. Connect — traffic goes directly through ForeignVM without the chain
+
+> **Note:** Both WhiteVPN and GreyVPN can be used simultaneously on different profiles in your VPN client.
+
+---
+
 ## What Gets Deployed
 
 ### WhiteVM (HAProxy)
@@ -166,13 +228,15 @@ After connecting:
 - WhiteVM monitoring script (auto-starts VM via Yandex Cloud CLI)
 - Let's Encrypt SSL certificate
 
-### ForeignVM (Xray Exit)
-- UFW firewall (22, 80, 443)
+### ForeignVM (Xray Exit + optional Grey VPN)
+- UFW firewall (22, 80, 443, +2053 if Grey VPN)
 - Fail2ban for SSH protection
 - Docker + Docker Compose
-- Xray: standalone VLESS Reality inbound on 443, freedom outbound (exit node)
-- Nginx: SSL reverse proxy on 8443 → Minio (Reality fallback)
+- Xray: standalone VLESS Reality inbound on 443, freedom outbound (exit node for chain)
+- Nginx: SSL reverse proxy on 8443 → Minio + Grey Marzban panel (Reality fallback)
 - Minio: bare S3 console (Docker, no persistence)
+- (Optional) Marzban Grey: direct VPN panel (Docker, host networking, port 8001)
+- (Optional) Xray Grey: VLESS Reality XHTTP on port 2053 (managed by Marzban Grey)
 - Let's Encrypt SSL certificate
 
 ## Auto-Recovery
@@ -188,6 +252,7 @@ All services are configured to survive VM reboots:
 | S3VM | WhiteVM monitor | cron (every minute) |
 | ForeignVM | Xray | systemd `enabled` |
 | ForeignVM | Docker + Minio | systemd + `restart: unless-stopped` |
+| ForeignVM | Docker + Marzban Grey | systemd + `restart: always` (if enabled) |
 | ForeignVM | Nginx | systemd `enabled` |
 
 S3VM runs a health check script every minute — if WhiteVM is unreachable, it automatically starts the Yandex Cloud instance via `yc` CLI.
@@ -205,7 +270,7 @@ S3VM runs a health check script every minute — if WhiteVM is unreachable, it a
 
 ```
 ├── ansible.cfg                 # Ansible configuration
-├── site.yml                    # Main playbook (12 stages)
+├── site.yml                    # Main playbook (14 stages)
 ├── inventory/
 │   ├── hosts.yml.example       # Host inventory template (fill in your values)
 │   └── hosts.yml               # (gitignored) Actual host inventory
@@ -221,7 +286,8 @@ S3VM runs a health check script every minute — if WhiteVM is unreachable, it a
     ├── nginx/                  # Reverse proxy configuration
     ├── minio/                  # Minio Docker deployment
     ├── haproxy/                # HAProxy SNI routing
-    ├── marzban/                # Marzban panel deployment
+    ├── marzban/                # Marzban panel deployment (S3VM, WhiteVPN)
+    ├── marzban_grey/           # Grey VPN panel deployment (ForeignVM, optional)
     ├── monitoring/             # WhiteVM health check (S3VM)
     └── verify/                 # Deployment verification
 ```
