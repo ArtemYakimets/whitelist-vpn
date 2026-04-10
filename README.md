@@ -95,6 +95,8 @@ brew install hudochenkov/sshpass/sshpass
 
 6. **Ports 80 and 443** open in cloud security groups / firewalls for all hosts (+ port **2053** on ForeignVM if Grey VPN is enabled)
 
+7. **Yandex Cloud Security Groups** — WhiteVM must be allowed to make **outbound TCP** connections to S3VM and ForeignVM (ports 22, 443). Without this, HAProxy cannot route VPN traffic.
+
 ### Configuration
 
 1. Copy example config files:
@@ -121,9 +123,24 @@ ansible-playbook site.yml
 # Deploy specific host
 ansible-playbook site.yml --limit s3
 
+# Deploy Grey VPN only
+ansible-playbook site.yml --limit foreign --start-at-task="Stage 12"
+
 # Verify only
-ansible-playbook site.yml --start-at-task="Stage 12"
+ansible-playbook site.yml --start-at-task="Stage 14"
 ```
+
+### Deploy Grey VPN (standalone, without Ansible)
+
+If Ansible is not available, use the standalone deploy script directly on ForeignVM:
+
+```bash
+# On ForeignVM (as root):
+bash scripts/deploy_grey.sh --domain <FOREIGNVM_DOMAIN> --ssh-pubkey "ssh-ed25519 AAAA..."
+```
+
+The script reads existing Reality keys, deploys Marzban Grey with VLESS Reality XHTTP
+on port 2053, updates Nginx, and verifies the chain Xray on port 443 still works.
 
 ---
 
@@ -271,6 +288,8 @@ S3VM runs a health check script every minute — if WhiteVM is unreachable, it a
 ```
 ├── ansible.cfg                 # Ansible configuration
 ├── site.yml                    # Main playbook (14 stages)
+├── scripts/
+│   └── deploy_grey.sh          # Standalone Grey VPN deploy script
 ├── inventory/
 │   ├── hosts.yml.example       # Host inventory template (fill in your values)
 │   └── hosts.yml               # (gitignored) Actual host inventory
