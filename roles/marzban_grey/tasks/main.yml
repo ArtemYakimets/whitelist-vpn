@@ -65,6 +65,7 @@
     mode: '0644'
   vars:
     grey_private_key: "{{ grey_privkey_file.content | b64decode | trim }}"
+    grey_public_key: "{{ grey_pubkey_file.content | b64decode | trim }}"
     grey_short_id: "{{ grey_shortid_file.content | b64decode | trim }}"
 
 - name: Template Grey Marzban environment file
@@ -102,7 +103,7 @@
     status_code: [200, 404, 422]
   register: grey_health
   until: grey_health.status is defined
-  retries: 30
+  retries: 60
   delay: 5
   failed_when: false
 

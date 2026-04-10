@@ -104,6 +104,7 @@ cat > /var/lib/marzban-grey/xray_config.json << XRAYEOF
             "${DOMAIN}"
           ],
           "privateKey": "${PRIVATE_KEY}",
+          "publicKey": "${PUBLIC_KEY}",
           "shortIds": [
             "${SHORT_ID}"
           ]
