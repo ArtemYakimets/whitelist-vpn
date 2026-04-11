@@ -26,7 +26,7 @@ all:
         foreign:
           ansible_host: <FOREIGNVM_IP>
           ansible_user: root
-          ansible_ssh_pass: "<FOREIGNVM_SSH_PASSWORD>"
+          ansible_ssh_private_key_file: ~/.ssh/id_ed25519
           server_domain: <FOREIGNVM_DOMAIN>
           server_role: foreign
 

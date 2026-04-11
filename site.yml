@@ -113,9 +113,34 @@
     - monitoring
 
 # ============================================================
-# Stage 12: Verify everything
+# Stage 12: Grey VPN deployment (optional, direct VPN on ForeignVM)
 # ============================================================
-- name: "Stage 12: Verify deployment"
+- name: "Stage 12: Grey VPN deployment"
+  hosts: foreign_vm
+  become: yes
+  tasks:
+    - name: Deploy Grey VPN Marzban
+      import_role:
+        name: marzban_grey
+      when: grey_vpn_enabled | default(false)
+
+# ============================================================
+# Stage 13: Configure Grey VPN hosts (optional)
+# ============================================================
+- name: "Stage 13: Configure Grey VPN hosts"
+  hosts: foreign_vm
+  become: yes
+  tasks:
+    - name: Configure Grey VPN Marzban hosts for direct access
+      import_role:
+        name: marzban_grey
+        tasks_from: configure_hosts.yml
+      when: grey_vpn_enabled | default(false)
+
+# ============================================================
+# Stage 14: Verify everything
+# ============================================================
+- name: "Stage 14: Verify deployment"
   hosts: all
   become: yes
   roles:

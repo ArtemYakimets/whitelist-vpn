@@ -72,6 +72,24 @@
   when: server_role == 'foreign'
   changed_when: false
 
+# --- ForeignVM Grey VPN checks ---
+- name: Verify Grey Marzban container is running (ForeignVM)
+  command: docker ps --filter name=marzban-grey --format '{{ '{{' }}.Status{{ '}}' }}'
+  register: grey_marzban_status
+  when: server_role == 'foreign' and grey_vpn_enabled | default(false)
+  changed_when: false
+
+- name: Show Grey Marzban status (ForeignVM)
+  debug:
+    var: grey_marzban_status.stdout
+  when: server_role == 'foreign' and grey_vpn_enabled | default(false)
+
+- name: Verify Grey VPN port is listening (ForeignVM)
+  wait_for:
+    port: "{{ grey_xray_port }}"
+    timeout: 5
+  when: server_role == 'foreign' and grey_vpn_enabled | default(false)
+
 # --- Common checks ---
 - name: Verify Nginx is running
   systemd:
@@ -166,5 +184,8 @@
       {% if server_role == 'foreign' %}
       Xray:     {{ 'OK' if xray_status_foreign is not failed else 'FAIL' }}
       Minio:    {{ minio_container_status.stdout | default('N/A') }}
+      {% if grey_vpn_enabled | default(false) %}
+      GreyVPN:  {{ grey_marzban_status.stdout | default('N/A') }}
+      {% endif %}
       {% endif %}
       ====================================

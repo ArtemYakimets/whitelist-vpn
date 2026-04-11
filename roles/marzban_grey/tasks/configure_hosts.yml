@@ -1,0 +1,65 @@
+---
+# Configure Grey Marzban host settings so subscription links point directly to ForeignVM
+
+- name: Read Grey admin password
+  slurp:
+    src: /var/lib/marzban-grey/.admin_password
+  register: stored_grey_pass
+  no_log: true
+
+- name: Set Grey admin password fact
+  set_fact:
+    grey_admin_password: "{{ stored_grey_pass.content | b64decode | trim }}"
+  no_log: true
+
+- name: Read Reality public key for Grey VPN
+  slurp:
+    src: /etc/xray/reality_public_key
+  register: grey_pubkey_file
+
+- name: Read Reality short ID for Grey VPN
+  slurp:
+    src: /etc/xray/short_id
+  register: grey_shortid_file
+
+- name: Get Grey Marzban admin token
+  uri:
+    url: "http://127.0.0.1:{{ grey_marzban_port }}/api/admin/token"
+    method: POST
+    body_format: form-urlencoded
+    body:
+      grant_type: "password"
+      username: "admin"
+      password: "{{ grey_admin_password }}"
+    status_code: [200]
+  register: grey_marzban_token
+  retries: 5
+  delay: 5
+  no_log: true
+
+- name: Configure Grey Marzban hosts for direct access
+  uri:
+    url: "http://127.0.0.1:{{ grey_marzban_port }}/api/hosts"
+    method: PUT
+    headers:
+      Authorization: "Bearer {{ grey_marzban_token.json.access_token }}"
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      VLESS_REALITY_XHTTP:
+        - remark: "GreyVPN"
+          address: "{{ foreignvm_domain }}"
+          port: "{{ grey_xray_port }}"
+          sni: "{{ foreignvm_domain }}"
+          fingerprint: "chrome"
+          is_disabled: false
+    status_code: [200]
+
+- name: Display Grey VPN host configuration
+  debug:
+    msg: |
+      === Grey VPN Hosts Configured ===
+      Generated links will use: {{ foreignvm_domain }}:{{ grey_xray_port }}
+      SNI:       {{ foreignvm_domain }}
+      Transport: XHTTP (Reality)
+      Route:     Client → ForeignVM → Internet (direct, no chain)
